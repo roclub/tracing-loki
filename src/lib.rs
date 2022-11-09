@@ -176,11 +176,6 @@ struct SerializedEvent<'a> {
     extra_fields: &'a HashMap<String, String>,
     #[serde(flatten)]
     span_fields: serde_json::Map<String, serde_json::Value>,
-    _spans: &'a [&'a str],
-    _target: &'a str,
-    _module_path: Option<&'a str>,
-    _file: Option<&'a str>,
-    _line: Option<u32>,
 }
 
 #[derive(Default)]
@@ -271,11 +266,6 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> tracing_subscriber::Layer<S> for La
                 event: SerializeEventFieldMapStrippingLog(event),
                 extra_fields: &self.extra_fields,
                 span_fields,
-                _spans: &spans,
-                _target: meta.target(),
-                _module_path: meta.module_path(),
-                _file: meta.file(),
-                _line: meta.line(),
             })
             .expect("json serialization shouldn't fail"),
         });
