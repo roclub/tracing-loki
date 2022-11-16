@@ -140,6 +140,7 @@ impl fmt::Display for ErrorInner {
 /// The the crate's root documentation for an example.
 pub fn layer(
     loki_url: Url,
+    credentials: Option<Credentials>,
     mut labels: HashMap<String, String>,
     extra_fields: HashMap<String, String>,
 ) -> Result<(Layer, BackgroundTask), Error> {
@@ -149,7 +150,7 @@ pub fn layer(
             sender,
             extra_fields,
         },
-        BackgroundTask::new(loki_url, receiver, &mut labels)?,
+        BackgroundTask::new(loki_url, credentials, receiver, &mut labels)?,
     ))
 }
 
@@ -166,6 +167,19 @@ struct LokiEvent {
     timestamp: SystemTime,
     level: Level,
     message: String,
+}
+
+/// The credentials to use for http basic authentication with the Loki server.
+pub struct Credentials {
+    username: String,
+    password: Option<String>,
+}
+
+impl Credentials {
+    /// Create a new [`Credentials`] instance.
+    pub fn new(username: String, password: Option<String>) -> Self {
+        Self { username, password }
+    }
 }
 
 #[derive(Serialize)]
@@ -358,6 +372,7 @@ impl error::Error for BadRedirect {}
 /// The the crate's root documentation for an example.
 pub struct BackgroundTask {
     loki_url: Url,
+    credentials: Option<Credentials>,
     receiver: ReceiverStream<LokiEvent>,
     queues: LevelMap<SendQueue>,
     buffer: Buffer,
@@ -371,6 +386,7 @@ pub struct BackgroundTask {
 impl BackgroundTask {
     fn new(
         loki_url: Url,
+        credentials: Option<Credentials>,
         receiver: mpsc::Receiver<LokiEvent>,
         labels: &mut HashMap<String, String>,
     ) -> Result<BackgroundTask, Error> {
@@ -392,6 +408,7 @@ impl BackgroundTask {
             loki_url: loki_url
                 .join("/loki/api/v1/push")
                 .map_err(|_| Error(ErrorI::InvalidLokiUrl))?,
+            credentials,
             queues: LevelMap::try_from_fn(|level| {
                 labels.insert("level".into(), level_str(level).into());
                 let labels_encoded = labels_to_string(labels)?;
@@ -515,7 +532,10 @@ impl Future for BackgroundTask {
                     .buffer
                     .encode(&loki::PushRequest { streams })
                     .to_owned();
-                let request_builder = self.http_client.post(self.loki_url.clone());
+                let mut request_builder = self.http_client.post(self.loki_url.clone());
+                if let Some(credentials) = &self.credentials {
+                    request_builder = request_builder.basic_auth(&credentials.username, credentials.password.as_ref());
+                }
                 self.send_task = Some(Box::pin(
                     async move {
                         request_builder
